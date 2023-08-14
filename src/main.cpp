@@ -8,7 +8,7 @@
 21 -- SDA
 */
 
-const char version[6] = "2.1.1";
+const char version[6] = "2.1.4";
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -66,6 +66,9 @@ uint8_t		dsSecond = 0;
 uint16_t	temperature = 0;
 uint8_t		lightInten = 0;
 uint8_t		light2Inten = 0;
+bool		light2State = 0;
+bool		light2Mode = 0;
+uint16_t	light2OffDelay = 1;
 uint8_t		newLightInten = 0;
 uint8_t		oldLightinten = 0;
 uint8_t		dayBgtn = 0;
@@ -85,6 +88,8 @@ uint8_t		dayBgtnAddr = 2;
 uint8_t		nightBgtnAddr = 3;
 uint8_t		day2BgtnAddr = 4;
 uint8_t		night2BgtnAddr = 5;
+uint8_t		light2ModeAddr = 6;
+uint8_t		light2OffDelayAddr = 7;
 
 unsigned long mqttESPinfo1;
 unsigned long mqttESPinfo2;
@@ -94,6 +99,8 @@ unsigned long time_page;
 unsigned long checkTime;
 unsigned long reconnTime;
 unsigned long time_now;
+unsigned long lightOnStoreTime;
+unsigned long lightOffStoreTime;
 
 //Digits array
 byte digits1[12] = {
@@ -350,8 +357,42 @@ void callback(char* topic, byte* message, unsigned int length) {
             light2Inten = intLight2Inten;
 			EEPROM.put(light2IntenAddr, light2Inten);
 			EEPROM.commit();
-            analogWrite(LIGHT2_PIN, intLight2Inten);
+            if (light2Mode == 0) analogWrite(LIGHT2_PIN, intLight2Inten);
+			DynamicJsonDocument docSend(128);
+            String MQTT_STR;
+			docSend["other"]["status"]	= "OK";
+			docSend["other"]["msg"]		= "Set light2 Intensity to " + String(light2Inten);
+			serializeJson(docSend, MQTT_STR);
+            client.publish("esp/clock/savestatus", MQTT_STR.c_str());
         }
+
+		bool flagLight2Mode = doc["light2Mode"]["flag"];
+		if (flagLight2Mode == 1) {
+			bool boolLight2Mode = doc["light2Mode"]["value"];
+			light2Mode = boolLight2Mode;
+			EEPROM.put(light2ModeAddr, light2Mode);
+			EEPROM.commit();
+			DynamicJsonDocument docSend(128);
+            String MQTT_STR;
+			docSend["other"]["status"]	= "OK";
+			docSend["other"]["msg"]		= "Set light2Mode to " + String(light2Mode);
+			serializeJson(docSend, MQTT_STR);
+            client.publish("esp/clock/savestatus", MQTT_STR.c_str());
+		}
+
+		bool flagLight2OffDelay = doc["light2OffDelay"]["flag"];
+		if (flagLight2OffDelay == 1) {
+			uint16_t intLight2OffDelay = doc["light2OffDelay"]["value"];
+			light2OffDelay = intLight2OffDelay;
+			EEPROM.put(light2OffDelayAddr, light2OffDelay);
+			EEPROM.commit();
+			DynamicJsonDocument docSend(128);
+            String MQTT_STR;
+			docSend["other"]["status"]	= "OK";
+			docSend["other"]["msg"]		= "Set light2 Off Delay to " + String(light2OffDelay);
+			serializeJson(docSend, MQTT_STR);
+            client.publish("esp/clock/savestatus", MQTT_STR.c_str());
+		}
 
         bool flagUpdateTime = doc["time"]["flag"];
         if (flagUpdateTime == 1) {
@@ -460,6 +501,8 @@ void setup() {
 	EEPROM.get(nightBgtnAddr,nightBgtn);
 	EEPROM.get(day2BgtnAddr, day2Bgtn);
 	EEPROM.get(night2BgtnAddr,night2Bgtn);
+	EEPROM.get(light2ModeAddr, light2Mode);
+	EEPROM.get(light2OffDelayAddr, light2OffDelay);
 	pinMode(LIGHT_PIN, OUTPUT);
     pinMode(LIGHT2_PIN, OUTPUT);
 	analogWrite(LIGHT2_PIN, light2Inten);
@@ -514,12 +557,25 @@ void loop() {
 		}
 	} 
 
-	if (millis() - checkTime > 5000) {
-		if (digitalRead(PIR_PIN) == HIGH) {
-			analogWrite(LIGHT2_PIN, light2Inten);
+	if (light2Mode == 1) {
+		if (digitalRead(PIR_PIN) == HIGH && light2State == 0) {
+			if (millis() - lightOnStoreTime > 500) {
+				analogWrite(LIGHT2_PIN, light2Inten);
+				light2State = 1;
+			}
+			lightOffStoreTime = millis();
 		} else {
-			analogWrite(LIGHT2_PIN, 0);
+			if ((millis() - lightOffStoreTime > light2OffDelay*1000) && light2State == 1) {
+				analogWrite(LIGHT2_PIN, 0);
+				light2State = 0;
+			}
+			lightOnStoreTime = millis();
 		}
+	} else {
+		light2State = 0;
+	}
+
+	if (millis() - checkTime > 5000) {
 		if ((dsMonth > 2) && (dsMonth < 9)) {
 			sunriseMin = 20;
 			sunsetMin = 15;
