@@ -8,7 +8,7 @@
 21 -- SDA
 */
 
-const char version[6] = "2.1.4";
+const char version[6] = "2.1.5";
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -144,26 +144,82 @@ void clearDisplay() {
 	}
 }
 
-void writeDigit1(int index, int val, int r, int g, int b) {
-	byte digit = digits1[val];
+void writeDigit(int index, int val, int r, int g, int b, byte clock_num) {
+	byte digit;
+	if (clock_num == 1) digit = digits1[val];
+	else if (clock_num == 2) digit = digits2[val];
 	int margin;
 	if (index == 0 || index == 1 ) margin = 0;
 	if (index == 2 || index == 3 ) margin = 1;
 	if (index == 4 || index == 5 ) margin = 2;
 	for (int i = 6; i >= 0; i--) {
-	    int offset = index * (PIXEL1_PER_SEGMENT * 7) + i * PIXEL1_PER_SEGMENT;
+		int offset;
+	    if (clock_num == 1) offset = index * (PIXEL1_PER_SEGMENT * 7) + i * PIXEL1_PER_SEGMENT;
+		else if (clock_num == 2) offset = index * (PIXEL2_PER_SEGMENT * 7) + i * PIXEL2_PER_SEGMENT;
 	    uint32_t color;
 	    if (digit & 0x01 != 0) {
-	        if (index == 0 || index == 1 ) color = strip1.Color(r, g, b);
-	        if (index == 2 || index == 3 ) color = strip1.Color(r, g, b);
-	        if (index == 4 || index == 5 ) color = strip1.Color(r, g, b);
-	    }
-	    else
-	        color = strip1.Color(0, 0, 0);
+			if (clock_num == 1) {
+	        	if (index == 0 || index == 1 ) color = strip1.Color(r, g, b);
+	        	if (index == 2 || index == 3 ) color = strip1.Color(r, g, b);
+	        	if (index == 4 || index == 5 ) color = strip1.Color(r, g, b);
+			} else if (clock_num == 2) {
+				if (index == 0 || index == 1 ) color = strip2.Color(r, g, b);
+	        	if (index == 2 || index == 3 ) color = strip2.Color(r, g, b);
+	        	if (index == 4 || index == 5 ) color = strip2.Color(r, g, b);
+			}
+	    } else {
+			if (clock_num == 1) color = strip1.Color(0, 0, 0);
+			else if (clock_num == 2) color = strip2.Color(0, 0, 0);
+		}
+		if (clock_num == 1) {
+	    	for (int j = offset; j < offset + PIXEL1_PER_SEGMENT; j++) {
+	    	    strip1.setPixelColor(j, color);
+	    	}
+		} else if (clock_num == 2) {
+			for (int j = offset; j < offset + PIXEL2_PER_SEGMENT; j++) {
+	        	strip2.setPixelColor(j, color);
+	    	}
+		}
+	    digit = digit >> 1;
+    }
+}
 
-	    for (int j = offset; j < offset + PIXEL1_PER_SEGMENT; j++) {
-	        strip1.setPixelColor(j, color);
-	    }
+void writeDigitHSV(int index, int val, uint32_t hue, byte clock_num) {
+	byte digit;
+	if (clock_num == 1) digit = digits1[val];
+	else if (clock_num == 2) digit = digits2[val];
+	int margin;
+	if (index == 0 || index == 1 ) margin = 0;
+	if (index == 2 || index == 3 ) margin = 1;
+	if (index == 4 || index == 5 ) margin = 2;
+	for (int i = 6; i >= 0; i--) {
+		int offset;
+	    if (clock_num == 1) offset = index * (PIXEL1_PER_SEGMENT * 7) + i * PIXEL1_PER_SEGMENT;
+		else if (clock_num == 2) offset = index * (PIXEL2_PER_SEGMENT * 7) + i * PIXEL2_PER_SEGMENT;
+	    uint32_t color;
+	    if (digit & 0x01 != 0) {
+			if (clock_num == 1) {
+	        	if (index == 0 || index == 1 ) color = strip1.ColorHSV(hue);
+	        	if (index == 2 || index == 3 ) color = strip1.ColorHSV(hue);
+	        	if (index == 4 || index == 5 ) color = strip1.ColorHSV(hue);
+			} else if (clock_num == 2) {
+				if (index == 0 || index == 1 ) color = strip2.ColorHSV(hue);
+	        	if (index == 2 || index == 3 ) color = strip2.ColorHSV(hue);
+	        	if (index == 4 || index == 5 ) color = strip2.ColorHSV(hue);
+			}
+	    } else {
+			if (clock_num == 1) color = strip1.Color(0, 0, 0);
+			else if (clock_num == 2) color = strip2.Color(0, 0, 0);
+		}
+		if (clock_num == 1) {
+	    	for (int j = offset; j < offset + PIXEL1_PER_SEGMENT; j++) {
+	    	    strip1.setPixelColor(j, color);
+	    	}
+		} else if (clock_num == 2) {
+			for (int j = offset; j < offset + PIXEL2_PER_SEGMENT; j++) {
+	        	strip2.setPixelColor(j, color);
+	    	}
+		}
 	    digit = digit >> 1;
     }
 }
@@ -192,54 +248,6 @@ void writeDigit1HSV(int index, int val, uint32_t hue) {
     }
 }
 
-void writeDigit2(int index, int val, int r, int g, int b) {
-	byte digit = digits2[val];
-	int margin;
-	if (index == 0 || index == 1 ) margin = 0;
-	if (index == 2 || index == 3 ) margin = 1;
-	if (index == 4 || index == 5 ) margin = 2;
-	for (int i = 6; i >= 0; i--) {
-	    int offset = index * (PIXEL2_PER_SEGMENT * 7) + i * PIXEL2_PER_SEGMENT;
-	    uint32_t color;
-	    if (digit & 0x01 != 0) {
-	        if (index == 0 || index == 1 ) color = strip2.Color(r, g, b);
-	        if (index == 2 || index == 3 ) color = strip2.Color(r, g, b);
-	        if (index == 4 || index == 5 ) color = strip2.Color(r, g, b);
-	    }
-	    else
-	        color = strip2.Color(0, 0, 0);
-
-	    for (int j = offset; j < offset + PIXEL2_PER_SEGMENT; j++) {
-	        strip2.setPixelColor(j, color);
-	    }
-	    digit = digit >> 1;
-    }
-}
-
-void writeDigit2HSV(int index, int val, uint32_t hue) {
-	byte digit = digits2[val];
-	int margin;
-	if (index == 0 || index == 1 ) margin = 0;
-	if (index == 2 || index == 3 ) margin = 1;
-	if (index == 4 || index == 5 ) margin = 2;
-	for (int i = 6; i >= 0; i--) {
-	    int offset = index * (PIXEL2_PER_SEGMENT * 7) + i * PIXEL2_PER_SEGMENT;
-	    uint32_t color;
-	    if (digit & 0x01 != 0) {
-	        if (index == 0 || index == 1 ) color = strip2.ColorHSV(hue);
-	        if (index == 2 || index == 3 ) color = strip2.ColorHSV(hue);
-	        if (index == 4 || index == 5 ) color = strip2.ColorHSV(hue);
-	    }
-	    else
-	        color = strip2.Color(0, 0, 0);
-
-	    for (int j = offset; j < offset + PIXEL2_PER_SEGMENT; j++) {
-	        strip2.setPixelColor(j, color);
-	    }
-	    digit = digit >> 1;
-    }
-}
-
 void getTime() {
 	rtc.get(&dsSecond, &dsMinute, &dsHour, &dsDay, &dsMonth, &dsYear);
 }
@@ -247,15 +255,15 @@ void getTime() {
 void disp_Time() {
 	clearDisplay();
 	if (dsHour / 10 > 0) {
-		writeDigit1(0, dsHour / 10, 255, 128, 0);
-		writeDigit2(0, dsHour / 10, 255, 128, 0);
+		writeDigit(0, dsHour / 10, 255, 128, 0, 1);
+		writeDigit(0, dsHour / 10, 255, 128, 0, 2);
 	}
-	writeDigit1(1, dsHour	% 10, 255, 128, 0);
-	writeDigit1(2, dsMinute / 10, 255, 128, 0);
-	writeDigit1(3, dsMinute % 10, 255, 128, 0);
-	writeDigit2(1, dsHour	% 10, 255, 128, 0);
-	writeDigit2(2, dsMinute / 10, 255, 128, 0);
-	writeDigit2(3, dsMinute % 10, 255, 128, 0);
+	writeDigit(1, dsHour % 10, 255, 128, 0, 1);
+	writeDigit(2, dsMinute / 10, 255, 128, 0, 1);
+	writeDigit(3, dsMinute % 10, 255, 128, 0, 1);
+	writeDigit(1, dsHour % 10, 255, 128, 0, 2);
+	writeDigit(2, dsMinute / 10, 255, 128, 0, 2);
+	writeDigit(3, dsMinute % 10, 255, 128, 0, 2);
 }
 
 void setBlink(bool isTemp, int r, int g, int b) {
@@ -286,36 +294,33 @@ void dispTemp() {
 	clearDisplay();
 	if (temperature > 999 || temperature < 1) {
 		// Strip 1
-		writeDigit1(0, 11, 0, 255, 0);	// -
-		writeDigit1(1, 11, 0, 255, 0);	// -
-		writeDigit1(2, 11, 0, 255, 0);	// -
-		writeDigit1(3, 10, 0, 255, 0);	// c
+		writeDigit(0, 11, 0, 255, 0, 1);	// -
+		writeDigit(1, 11, 0, 255, 0, 1);	// -
+		writeDigit(2, 11, 0, 255, 0, 1);	// -
+		writeDigit(3, 10, 0, 255, 0, 1);	// c
 		// Strip 2
-		writeDigit2(0, 11, 0, 255, 0);	// -
-		writeDigit2(1, 11, 0, 255, 0);	// -
-		writeDigit2(2, 11, 0, 255, 0);	// -
-		writeDigit2(3, 10, 0, 255, 0);	// c
+		writeDigit(0, 11, 0, 255, 0, 2);	// -
+		writeDigit(1, 11, 0, 255, 0, 2);	// -
+		writeDigit(2, 11, 0, 255, 0, 2);	// -
+		writeDigit(3, 10, 0, 255, 0, 2);	// c
 	}
 	else {
 		// Strip 1
-		writeDigit1HSV(0, temperature / 100, hue);
-		writeDigit1HSV(1, (temperature / 10) % 10, hue);
-		writeDigit1HSV(2, temperature % 10, hue);
-		writeDigit1HSV(3, 10, hue);		// c
+		writeDigitHSV(0, temperature / 100, hue, 1);
+		writeDigitHSV(1, (temperature / 10) % 10, hue, 1);
+		writeDigitHSV(2, temperature % 10, hue, 1);
+		writeDigitHSV(3, 10, hue, 1);		// c
 		// Strip 2
-		writeDigit2HSV(0, temperature / 100, hue);
-		writeDigit2HSV(1, (temperature / 10) % 10, hue);
-		writeDigit2HSV(2, temperature % 10, hue);
-		writeDigit2HSV(3, 10, hue);		// c
+		writeDigitHSV(0, temperature / 100, hue, 2);
+		writeDigitHSV(1, (temperature / 10) % 10, hue, 2);
+		writeDigitHSV(2, temperature % 10, hue, 2);
+		writeDigitHSV(3, 10, hue, 2);		// c
 	}
 }
 
 void connectToWifi() {
 	Serial.println("Connecting to Wi-Fi...");
-	if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS))
-	{
-		Serial.println("STA Failed to configure");
-	}
+	if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) Serial.println("STA Failed to configure");
 	WiFi.begin(ssid, password);
 	WiFi.setAutoReconnect(true);
 	WiFi.persistent(true);
@@ -533,14 +538,14 @@ void setup() {
 	Serial.println("HTTP server started");
 	Serial.print("OK");
 	for (int i = 0; i < 12; i++) {
-		writeDigit1(0, i, 0, 255, 0);
-		writeDigit1(1, i, 0, 255, 0);
-		writeDigit1(2, i, 0, 255, 0);
-		writeDigit1(3, i, 0, 255, 0);
-		writeDigit2(0, i, 0, 255, 0);
-		writeDigit2(1, i, 0, 255, 0);
-		writeDigit2(2, i, 0, 255, 0);
-		writeDigit2(3, i, 0, 255, 0);
+		writeDigit(0, i, 0, 255, 0, 1);
+		writeDigit(1, i, 0, 255, 0, 1);
+		writeDigit(2, i, 0, 255, 0, 1);
+		writeDigit(3, i, 0, 255, 0, 1);
+		writeDigit(0, i, 0, 255, 0, 2);
+		writeDigit(1, i, 0, 255, 0, 2);
+		writeDigit(2, i, 0, 255, 0, 2);
+		writeDigit(3, i, 0, 255, 0, 2);
 		delay(100);
 	}
 	pinMode(PIR_PIN, INPUT);
@@ -661,7 +666,7 @@ void loop() {
 		if (millis() - blinkDelay > 1000) {
 			if (blinkState == 0) {
 				blinkState = 1;
-				setBlink(false, 100, 20, 0);
+				setBlink(false, 0, 200, 0);
 			}
 			else {
 				blinkState = 0;
