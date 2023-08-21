@@ -8,7 +8,7 @@
 21 -- SDA
 */
 
-const char version[6] = "2.1.5";
+const char version[6] = "2.1.6";
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -69,6 +69,7 @@ uint8_t		light2Inten = 0;
 bool		light2State = 0;
 bool		light2Mode = 0;
 uint16_t	light2OffDelay = 1;
+uint16_t	moreLight2OffDelay = 1;
 uint8_t		newLightInten = 0;
 uint8_t		oldLightinten = 0;
 uint8_t		dayBgtn = 0;
@@ -95,16 +96,15 @@ unsigned long mqttESPinfo1;
 unsigned long mqttESPinfo2;
 unsigned long blinkDelay;
 unsigned long pageHoldingTime;
-unsigned long time_page;
+unsigned long storePageTime;
+unsigned long storeDispTime;
 unsigned long checkTime;
 unsigned long reconnTime;
-unsigned long time_now;
 unsigned long lightOnStoreTime;
 unsigned long lightOffStoreTime;
 
 //Digits array
 byte digits1[12] = {
-	//abcdefg
 	0b1111011,      // 0
 	0b0001001,      // 1
 	0b1011110,      // 2
@@ -119,7 +119,6 @@ byte digits1[12] = {
 	0b0000100,      // -	(11)
 };
 byte digits2[12] = {
-	//abcdefg
 	0b1111011,      // 0
 	0b0001010,      // 1
 	0b1011101,      // 2
@@ -133,6 +132,225 @@ byte digits2[12] = {
 	0b1000101,      // c	(10)
 	0b0000100,      // -	(11)
 };
+
+void clearDisplay();
+void writeDigit(int index, int val, int r, int g, int b, byte clock_num);
+void writeDigitHSV(int index, int val, uint32_t hue, byte clock_num);
+void getTime();
+void dispTime();
+void setBlink(bool isTemp, int r, int g, int b);
+void setBlinkHSV(bool isTemp, uint32_t hue);
+void dispTemp();
+void connectToWifi();
+void callback(char* topic, byte* message, unsigned int length);
+void LightUpdate(int state);
+void reconnect();
+
+void setup() {
+	Serial.begin(115200);
+	Serial.print("Setting PIN");
+	EEPROM.begin(256);
+	EEPROM.get(lightIntenAddr, lightInten);
+	EEPROM.get(light2IntenAddr, light2Inten);
+	EEPROM.get(dayBgtnAddr, dayBgtn);
+	EEPROM.get(nightBgtnAddr,nightBgtn);
+	EEPROM.get(day2BgtnAddr, day2Bgtn);
+	EEPROM.get(night2BgtnAddr,night2Bgtn);
+	EEPROM.get(light2ModeAddr, light2Mode);
+	EEPROM.get(light2OffDelayAddr, light2OffDelay);
+	moreLight2OffDelay = light2OffDelay;
+	pinMode(LIGHT_PIN, OUTPUT);
+    pinMode(LIGHT2_PIN, OUTPUT);
+	for (int i=lightInten; i>0; i--) {
+		analogWrite(LIGHT_PIN, i);
+		delay(10);
+	}
+	for (int i=0; i<lightInten; i++) {
+		analogWrite(LIGHT_PIN, i);
+		delay(10);
+	}
+	strip1.setBrightness(nightBgtn);
+	strip2.setBrightness(night2Bgtn);
+	strip1.begin();
+	strip2.begin();
+	rtc.begin();
+	rtc.start();
+	getTime();
+	connectToWifi();
+	client.setServer(MQTT_HOST, 1883);
+	client.setCallback(callback);
+	server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    	request->send(200, "text/plain", "Hi! I am ESP32. ESP32-Clock\nVersion: " + String(version));
+	});
+
+	AsyncElegantOTA.begin(&server);    // Start ElegantOTA
+	server.begin();
+	Serial.println("HTTP server started");
+	Serial.print("OK");
+	for (int i = 0; i < 12; i++) {
+		writeDigit(0, i, 0, 255, 0, 1);
+		writeDigit(1, i, 0, 255, 0, 1);
+		writeDigit(2, i, 0, 255, 0, 1);
+		writeDigit(3, i, 0, 255, 0, 1);
+		writeDigit(0, i, 0, 255, 0, 2);
+		writeDigit(1, i, 0, 255, 0, 2);
+		writeDigit(2, i, 0, 255, 0, 2);
+		writeDigit(3, i, 0, 255, 0, 2);
+		delay(100);
+	}
+	pinMode(PIR_PIN, INPUT);
+	delay(1000);
+}
+
+void loop() {
+    client.loop();
+
+	if (!client.connected()) {
+		if (millis() - reconnTime > 1000) {
+			reconnect();
+			reconnTime = millis();
+		}
+	} 
+
+	if (light2Mode == 1) {
+		if (digitalRead(PIR_PIN)) {
+			if (light2State == 0) {
+				if (millis() - lightOnStoreTime > 500) {
+					analogWrite(LIGHT2_PIN, light2Inten);
+					light2State = 1;
+				}
+			} else lightOffStoreTime = millis();
+		} else {
+			if ((millis() - lightOffStoreTime > light2OffDelay*1000) && light2State == 1) {
+				analogWrite(LIGHT2_PIN, 0);
+				light2State = 0;
+			}
+			lightOnStoreTime = millis();
+		}
+	} else {
+		light2State = 0;
+	}
+
+	if (millis() - checkTime > 5000) {
+		if ((dsMonth > 2) && (dsMonth < 9)) {
+			sunriseMin = 20;
+			sunsetMin = 15;
+		} else {
+			sunriseMin = 40;
+			sunsetMin = 5;
+		}
+		if ((dsHour > 5) && (dsHour < 19)) {
+			if (dsHour == 6) {
+				if (dsMinute > sunriseMin) {
+					LightUpdate(0);
+					nightMode = 0;
+				} else {
+					LightUpdate(1);
+					nightMode = 1;
+				}
+			} else if (dsHour == 18) {
+				if (dsMinute < sunsetMin) {
+					LightUpdate(0);
+					nightMode = 0;
+				} else {
+					LightUpdate(1);
+					nightMode = 1;
+				}
+			} else {
+				LightUpdate(0);
+				nightMode = 0;
+			}
+		} else {
+			LightUpdate(1);
+			nightMode = 1;
+		}
+		checkTime = millis();
+	}
+	// Store time when page 1 or page 2 is active
+	if (page == 1 && updated == 0) {
+		storePageTime == millis();
+		updated = 1;
+	} else if (page == 2 && updated == 1) {
+		storePageTime = millis();
+		updated = 0;
+	}
+
+	// Calculate stored time
+	pageHoldingTime = millis() - storePageTime;
+
+	if (pageHoldingTime > 10000) {
+		page = 2;
+		pageHoldingTime = 0;
+	} else if (pageHoldingTime > 3000) {
+		page = 1;
+		pageHoldingTime = 0;
+	}
+	
+	// Nightmode check
+	if (nightMode == 1) {
+		strip1.setBrightness(nightBgtn);
+		strip2.setBrightness(night2Bgtn);
+	} else {
+		strip1.setBrightness(dayBgtn);
+		strip2.setBrightness(day2Bgtn);
+	}
+
+	// Page 1 is active
+	if (page == 1) {
+		if ((millis() - storeDispTime > 2000) && clockUpdated == 0) {
+			storeDispTime = millis();
+			getTime();
+			dispTime();
+			strip1.show();
+			strip2.show();
+			clockUpdated = 1;	// freeze clock update
+		}
+		if (millis() - blinkDelay > 1000) {
+			if (blinkState == 0) {
+				blinkState = 1;
+				setBlink(false, 0, 200, 0);
+			} else {
+				blinkState = 0;
+				setBlink(false, 0, 0, 0);
+			}
+			strip1.show();
+			strip2.show();
+			blinkDelay = millis();
+		}
+		freeze = 0;	// unfreeze page 2
+	} else if (page == 2 && freeze == 0) {	// Page 2 is active
+		dispTemp();
+		setBlinkHSV(true, hue);
+		strip1.show();
+		strip2.show();
+		freeze = 1;			// freeze page 2
+		clockUpdated = 0;	// unfreeze clock update
+	}
+
+	if (millis() - mqttESPinfo1 > 1000) {
+		DynamicJsonDocument docInfo(192);
+		String MQTT_STR;
+		docInfo["rssi"] = String(WiFi.RSSI());
+		docInfo["uptime"] = String(millis()/1000);
+		docInfo["datetime"] = String(dsHour/10) + String(dsHour%10) + ":" + String(dsMinute/10) + String(dsMinute%10);
+		docInfo["lightInten"] = String(lightInten);
+		docInfo["light2Inten"] = String(light2Inten);
+		docInfo["light2time"] = String(lightOffStoreTime/1000);
+		serializeJson(docInfo, MQTT_STR);
+		client.publish("esp/clock/info", MQTT_STR.c_str());
+		mqttESPinfo1 = millis();
+	}
+	if (millis() - mqttESPinfo2 > 300000) {		// 5 min
+		DynamicJsonDocument docInfo(64);
+		String MQTT_STR;
+		docInfo["lightInten"] = String(lightInten);
+		docInfo["light2Inten"] = String(light2Inten);
+		serializeJson(docInfo, MQTT_STR);
+		client.publish("esp/clock/log", MQTT_STR.c_str());
+		mqttESPinfo2 = millis();
+	}
+}
+
 
 // Clear all the Pixels
 void clearDisplay() {
@@ -224,35 +442,11 @@ void writeDigitHSV(int index, int val, uint32_t hue, byte clock_num) {
     }
 }
 
-void writeDigit1HSV(int index, int val, uint32_t hue) {
-	byte digit = digits1[val];
-	int margin;
-	if (index == 0 || index == 1 ) margin = 0;
-	if (index == 2 || index == 3 ) margin = 1;
-	if (index == 4 || index == 5 ) margin = 2;
-	for (int i = 6; i >= 0; i--) {
-	    int offset = index * (PIXEL1_PER_SEGMENT * 7) + i * PIXEL1_PER_SEGMENT;
-	    uint32_t color;
-	    if (digit & 0x01 != 0) {
-	        if (index == 0 || index == 1 ) color = strip1.ColorHSV(hue);
-	        if (index == 2 || index == 3 ) color = strip1.ColorHSV(hue);
-	        if (index == 4 || index == 5 ) color = strip1.ColorHSV(hue);
-	    }
-	    else
-	        color = strip1.Color(0, 0, 0);
-
-	    for (int j = offset; j < offset + PIXEL1_PER_SEGMENT; j++) {
-	        strip1.setPixelColor(j, color);
-	    }
-	    digit = digit >> 1;
-    }
-}
-
 void getTime() {
 	rtc.get(&dsSecond, &dsMinute, &dsHour, &dsDay, &dsMonth, &dsYear);
 }
 
-void disp_Time() {
+void dispTime() {
 	clearDisplay();
 	if (dsHour / 10 > 0) {
 		writeDigit(0, dsHour / 10, 255, 128, 0, 1);
@@ -377,6 +571,8 @@ void callback(char* topic, byte* message, unsigned int length) {
 			light2Mode = boolLight2Mode;
 			EEPROM.put(light2ModeAddr, light2Mode);
 			EEPROM.commit();
+			if (light2Mode == 0) analogWrite(LIGHT2_PIN, light2Inten);
+			else if (light2Mode == 1) analogWrite(LIGHT2_PIN, 0);
 			DynamicJsonDocument docSend(128);
             String MQTT_STR;
 			docSend["other"]["status"]	= "OK";
@@ -477,8 +673,7 @@ void LightUpdate(int state) {
 	else if (newLightInten < oldLightinten) lightInten--;
 	if (state == 0) {
 		analogWrite(LIGHT_PIN, 0);
-	}
-	else if (state == 1) {
+	} else if (state == 1) {
 		analogWrite(LIGHT_PIN, lightInten);
 	}
 }
@@ -494,219 +689,4 @@ void reconnect() {
             Serial.print(client.state());
         }
     }
-}
-
-void setup() {
-	Serial.begin(115200);
-	Serial.print("Setting PIN");
-	EEPROM.begin(256);
-	EEPROM.get(lightIntenAddr, lightInten);
-	EEPROM.get(light2IntenAddr, light2Inten);
-	EEPROM.get(dayBgtnAddr, dayBgtn);
-	EEPROM.get(nightBgtnAddr,nightBgtn);
-	EEPROM.get(day2BgtnAddr, day2Bgtn);
-	EEPROM.get(night2BgtnAddr,night2Bgtn);
-	EEPROM.get(light2ModeAddr, light2Mode);
-	EEPROM.get(light2OffDelayAddr, light2OffDelay);
-	pinMode(LIGHT_PIN, OUTPUT);
-    pinMode(LIGHT2_PIN, OUTPUT);
-	analogWrite(LIGHT2_PIN, light2Inten);
-	for (int i=lightInten; i>0; i--) {
-		analogWrite(LIGHT_PIN, i);
-		delay(10);
-	}
-	for (int i=0; i<lightInten; i++) {
-		analogWrite(LIGHT_PIN, i);
-		delay(10);
-	}
-	strip1.setBrightness(nightBgtn);
-	strip2.setBrightness(night2Bgtn);
-	strip1.begin();
-	strip2.begin();
-	rtc.begin();
-	rtc.start();
-	getTime();
-	connectToWifi();
-	client.setServer(MQTT_HOST, 1883);
-	client.setCallback(callback);
-	server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    	request->send(200, "text/plain", "Hi! I am ESP32. ESP32-Clock\nVersion: " + String(version));
-	});
-
-	AsyncElegantOTA.begin(&server);    // Start ElegantOTA
-	server.begin();
-	Serial.println("HTTP server started");
-	Serial.print("OK");
-	for (int i = 0; i < 12; i++) {
-		writeDigit(0, i, 0, 255, 0, 1);
-		writeDigit(1, i, 0, 255, 0, 1);
-		writeDigit(2, i, 0, 255, 0, 1);
-		writeDigit(3, i, 0, 255, 0, 1);
-		writeDigit(0, i, 0, 255, 0, 2);
-		writeDigit(1, i, 0, 255, 0, 2);
-		writeDigit(2, i, 0, 255, 0, 2);
-		writeDigit(3, i, 0, 255, 0, 2);
-		delay(100);
-	}
-	pinMode(PIR_PIN, INPUT);
-	delay(1000);
-}
-
-void loop() {
-    client.loop();
-
-	if (!client.connected()) {
-		if (millis() - reconnTime > 1000) {
-			reconnect();
-			reconnTime = millis();
-		}
-	} 
-
-	if (light2Mode == 1) {
-		if (digitalRead(PIR_PIN) == HIGH && light2State == 0) {
-			if (millis() - lightOnStoreTime > 500) {
-				analogWrite(LIGHT2_PIN, light2Inten);
-				light2State = 1;
-			}
-			lightOffStoreTime = millis();
-		} else {
-			if ((millis() - lightOffStoreTime > light2OffDelay*1000) && light2State == 1) {
-				analogWrite(LIGHT2_PIN, 0);
-				light2State = 0;
-			}
-			lightOnStoreTime = millis();
-		}
-	} else {
-		light2State = 0;
-	}
-
-	if (millis() - checkTime > 5000) {
-		if ((dsMonth > 2) && (dsMonth < 9)) {
-			sunriseMin = 20;
-			sunsetMin = 15;
-		}
-		else {
-			sunriseMin = 40;
-			sunsetMin = 5;
-		}
-		if ((dsHour > 5) && (dsHour < 19)) {
-			if (dsHour == 6) {
-				if (dsMinute > sunriseMin) {
-					LightUpdate(0);
-					nightMode = 0;
-				}
-				else {
-					LightUpdate(1);
-					nightMode = 1;
-				}
-			}
-			else if (dsHour == 18) {
-				if (dsMinute < sunsetMin) {
-					LightUpdate(0);
-					nightMode = 0;
-				}
-				else {
-					LightUpdate(1);
-					nightMode = 1;
-				}
-			}
-			else {
-				LightUpdate(0);
-				nightMode = 0;
-			}
-		}
-		else {
-			LightUpdate(1);
-			nightMode = 1;
-		}
-		checkTime = millis();
-	}
-	// Store time when page 1 or page 2 is active
-	if (page == 1 && updated == 0) {
-		time_page == millis();
-		updated = 1;
-	}
-	else if (page == 2 && updated == 1) {
-		time_page = millis();
-		updated = 0;
-	}
-
-	// Calculate stored time
-	pageHoldingTime = millis() - time_page;
-
-	if (pageHoldingTime > 10000) {
-		page = 2;
-		pageHoldingTime = 0;
-	}
-	else if (pageHoldingTime > 3000) {
-		page = 1;
-		pageHoldingTime = 0;
-	}
-	
-	// Nightmode check
-	if (nightMode == 1) {
-		strip1.setBrightness(nightBgtn);
-		strip2.setBrightness(night2Bgtn);
-	}
-	else {
-		strip1.setBrightness(dayBgtn);
-		strip2.setBrightness(day2Bgtn);
-	}
-
-	// Page 1 is active
-	if (page == 1) {
-		if ((millis() - time_now > 2000) && clockUpdated == 0) {
-			time_now = millis();
-			getTime();
-			disp_Time();
-			strip1.show();
-			strip2.show();
-			clockUpdated = 1;	// freeze clock update
-		}
-		if (millis() - blinkDelay > 1000) {
-			if (blinkState == 0) {
-				blinkState = 1;
-				setBlink(false, 0, 200, 0);
-			}
-			else {
-				blinkState = 0;
-				setBlink(false, 0, 0, 0);
-			}
-			strip1.show();
-			strip2.show();
-			blinkDelay = millis();
-		}
-		freeze = 0;	// unfreeze page 2
-	}
-	// Page 2 is active
-	else if (page == 2 && freeze == 0) {
-		dispTemp();
-		setBlinkHSV(true, hue);
-		strip1.show();
-		strip2.show();
-		freeze = 1;			// freeze page 2
-		clockUpdated = 0;	// unfreeze clock update
-	}
-
-	if (millis() - mqttESPinfo1 > 1000) {
-		DynamicJsonDocument docInfo(192);
-		String MQTT_STR;
-		docInfo["rssi"] = String(WiFi.RSSI());
-		docInfo["uptime"] = String(millis()/1000);
-		docInfo["datetime"] = String(dsHour/10) + String(dsHour%10) + ":" + String(dsMinute/10) + String(dsMinute%10);
-		docInfo["lightInten"] = String(lightInten);
-		docInfo["light2Inten"] = String(light2Inten);
-		serializeJson(docInfo, MQTT_STR);
-		client.publish("esp/clock/info", MQTT_STR.c_str());
-		mqttESPinfo1 = millis();
-	}
-	if (millis() - mqttESPinfo2 > 300000) {		// 5 min
-		DynamicJsonDocument docInfo(64);
-		String MQTT_STR;
-		docInfo["lightInten"] = String(lightInten);
-		docInfo["light2Inten"] = String(light2Inten);
-		serializeJson(docInfo, MQTT_STR);
-		client.publish("esp/clock/log", MQTT_STR.c_str());
-		mqttESPinfo2 = millis();
-	}
 }
