@@ -8,7 +8,7 @@
 21 -- SDA
 */
 
-const char version[6] = "2.1.6";
+const char version[6] = "2.1.7";
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -144,6 +144,7 @@ void dispTemp();
 void connectToWifi();
 void callback(char* topic, byte* message, unsigned int length);
 void LightUpdate(int state);
+void setLight2(byte inten);
 void reconnect();
 
 void setup() {
@@ -160,7 +161,8 @@ void setup() {
 	EEPROM.get(light2OffDelayAddr, light2OffDelay);
 	moreLight2OffDelay = light2OffDelay;
 	pinMode(LIGHT_PIN, OUTPUT);
-    pinMode(LIGHT2_PIN, OUTPUT);
+	ledcSetup(0, 15000, 8);
+	ledcAttachPin(LIGHT2_PIN, 0);
 	for (int i=lightInten; i>0; i--) {
 		analogWrite(LIGHT_PIN, i);
 		delay(10);
@@ -216,13 +218,13 @@ void loop() {
 		if (digitalRead(PIR_PIN)) {
 			if (light2State == 0) {
 				if (millis() - lightOnStoreTime > 500) {
-					analogWrite(LIGHT2_PIN, light2Inten);
+					setLight2(light2Inten);
 					light2State = 1;
 				}
 			} else lightOffStoreTime = millis();
 		} else {
 			if ((millis() - lightOffStoreTime > light2OffDelay*1000) && light2State == 1) {
-				analogWrite(LIGHT2_PIN, 0);
+				setLight2(0);
 				light2State = 0;
 			}
 			lightOnStoreTime = millis();
@@ -556,7 +558,7 @@ void callback(char* topic, byte* message, unsigned int length) {
             light2Inten = intLight2Inten;
 			EEPROM.put(light2IntenAddr, light2Inten);
 			EEPROM.commit();
-            if (light2Mode == 0) analogWrite(LIGHT2_PIN, intLight2Inten);
+            if (light2Mode == 0) setLight2(light2Inten);
 			DynamicJsonDocument docSend(128);
             String MQTT_STR;
 			docSend["other"]["status"]	= "OK";
@@ -571,8 +573,8 @@ void callback(char* topic, byte* message, unsigned int length) {
 			light2Mode = boolLight2Mode;
 			EEPROM.put(light2ModeAddr, light2Mode);
 			EEPROM.commit();
-			if (light2Mode == 0) analogWrite(LIGHT2_PIN, light2Inten);
-			else if (light2Mode == 1) analogWrite(LIGHT2_PIN, 0);
+			if (light2Mode == 0) setLight2(light2Inten);
+			else if (light2Mode == 1) setLight2(0);
 			DynamicJsonDocument docSend(128);
             String MQTT_STR;
 			docSend["other"]["status"]	= "OK";
@@ -676,6 +678,10 @@ void LightUpdate(int state) {
 	} else if (state == 1) {
 		analogWrite(LIGHT_PIN, lightInten);
 	}
+}
+
+void setLight2(byte inten) {
+	ledcWrite(0, light2Inten);
 }
 
 void reconnect() {
