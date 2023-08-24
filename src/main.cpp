@@ -8,7 +8,9 @@
 21 -- SDA
 */
 
-const char version[6] = "2.1.7";
+const char version[6] = "2.1.8";
+const char built_date[9] = "20230824";
+const char built_time[5] = "1923";
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -163,6 +165,7 @@ void setup() {
 	pinMode(LIGHT_PIN, OUTPUT);
 	ledcSetup(0, 15000, 8);
 	ledcAttachPin(LIGHT2_PIN, 0);
+	setLight2(0);
 	for (int i=lightInten; i>0; i--) {
 		analogWrite(LIGHT_PIN, i);
 		delay(10);
@@ -182,7 +185,7 @@ void setup() {
 	client.setServer(MQTT_HOST, 1883);
 	client.setCallback(callback);
 	server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    	request->send(200, "text/plain", "Hi! I am ESP32. ESP32-Clock\nVersion: " + String(version));
+    	request->send(200, "text/plain", "Hi! I am ESP32. ESP32-Clock\nVersion: " + String(version) + "\nBuilt Date: " + String(built_date) + "\nBuilt Time: " + String(built_time));
 	});
 
 	AsyncElegantOTA.begin(&server);    // Start ElegantOTA
@@ -681,7 +684,7 @@ void LightUpdate(int state) {
 }
 
 void setLight2(byte inten) {
-	ledcWrite(0, light2Inten);
+	ledcWrite(0, inten);
 }
 
 void reconnect() {
