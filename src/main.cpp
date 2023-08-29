@@ -8,9 +8,9 @@
 21 -- SDA
 */
 
-const char version[6] = "2.1.8";
-const char built_date[9] = "20230824";
-const char built_time[5] = "1923";
+const char version[7] = "2.1.09";
+const char built_date[9] = "20230829";
+const char built_time[5] = "2027";
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -692,7 +692,7 @@ void reconnect() {
         Serial.print("Attempting MQTT connection...");
         if (client.connect("ESP32Client")) {
             Serial.println("connected");
-            client.subscribe("esp/clock/get");
+            client.subscribe("esp/clock/get", 1);
         } else {
             Serial.print("failed, rc=");
             Serial.print(client.state());
