@@ -1,0 +1,9 @@
+DS1307
+bblanchon/ArduinoJson@^6.21.2
+ESPAsyncWebServer
+ayushsharma82/AsyncElegantOTA@^2.2.7
+NTPClient
+Time
+pubsubclient
+adafruit/Adafruit NeoPixel@^1.11.0
+AsyncMqttClient
